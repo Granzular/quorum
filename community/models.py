@@ -1,17 +1,19 @@
 from django.db import models
 from accounts.models import CustomUser as User
+from uuid6 import uuid7
 
 class Content(models.Model):
     TYPE_CHOICES = [
         ('post','Post'),
         ('comment','Comment')
     ]
+    id = models.UUIDField( primary_key=True, default=uuid7, editable=False, db_index=True)
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     title = models.CharField(max_length=128,blank=True,null=True)
     author = models.ForeignKey(User,on_delete=models.CASCADE)
-    content = models.TextField()
+    text = models.TextField(default=' ')
     parent = models.ForeignKey("self",null=True,blank=True,on_delete=models.CASCADE,related_name="replies")
-    media = models.FileField(upload_to='posts/')
+    media = models.FileField(upload_to='posts/', blank=True, null=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 

@@ -214,6 +214,60 @@ ul {
     color: #444;
 }
  
+/* ==== coursee catalogue ====*/
+.not-found{
+    color: rgb(255, 140, 0);
+}
+
+/* ==== blog preview ====  */
+.blog{
+    width: 80%;
+    margin: auto;
+    padding: 10px;
+}
+.post{
+    width: 80%;
+    height: 35vh;
+    margin: auto;
+    margin-bottom: 20px;
+    border: solid 1px #555;
+    border-radius: 10px;
+    background-color: #f8fafc;
+}
+
+.post-content{
+    width: 100%;
+    height: 60%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: none;
+    background-color: #f8fafc;
+}
+.replies{
+    width: 100%;
+    height: 40%;
+    padding: 10px;
+    border: none;
+    background-color: #f8fafc;
+}
+.reply{
+    width: 100%;
+    padding-left: 15px;
+    border: none;
+    background-color: #f8fafc;
+}
+.no-reply{
+    color: grey;
+}
+.post-author{
+    color: rgb(0, 166, 255);
+    font-size: 18px;
+}
+.reply-author{
+    color: rgb(0, 166, 255);
+    font-size: 14px;
+}
+
 /* ===== Footer ===== */
 .footer {
     padding: 2rem 0;

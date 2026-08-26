@@ -1,33 +1,8 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QUORUM | Home</title>
-    <link rel="stylesheet" href="{% static 'main/css/main.css' %}">
-</head>
-<body>
-    <!-- Header -->
-    <header class="header">
-        <div class="container">
-            <a href="" class="logo">QUORUM</a>
-            <nav class="nav">
-                <ul class="nav-list">
-                    <li><a href="#features">Features</a></li>
-                    <li><a href="#about">About</a></li>
-                    <li><a href="#contact">Contact</a></li>
-                </ul>
-                <button class="menu-toggle" aria-label="Toggle menu">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-            </nav>
-        </div>
-    </header>
+{% extends 'main/base.html' %}
 
-    <!-- Hero Section -->
+{% block content %}
+
+<!-- Hero Section -->
     <section class="hero">
         <div class="container">
             <h1>Welcome to The Quorum</h1>
@@ -37,36 +12,47 @@
 
     <!-- Features/Links Section -->
     <section id="features" class="features">
-        <div class="container">
-            <h2>TEST GROUND</h2>
-            {% if user.is_authenticated %}
-            <button id="data-sync-btn" type="button">SYNC DATA</button>
-            {% endif %}
-            <div id="search-cont">
-                <input type="text" id="search-box" placeholder=" search for a course material">
-                <button type="button" id="search-btn">search</button>
-                <div id="search-result">
-
-                </div>
-            </div>
-            <div class="card-grid">
-                 
-            </div>
-        </div>
+        <ul>
+            <li><a href="{% url 'main:library' %}">Library</a></li>
+            <li><a href="{% url 'main:library' %}"></a>Community</li>
+            
+        </ul>
     </section>
 
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <p>&copy; 2026 quorum. All rights reserved.</p>
-            <p>@FUTA-CSC '28</p>
-            <ul class="footer-links">
-                <li><a href="/privacy">Privacy</a></li>
-                <li><a href="/terms">Terms</a></li>
-            </ul>
-        </div>
-    </footer>
+    <section class="blog">
+        {% if posts %}
+        {% for post in posts  %}
+        <div class="post">
 
-    <script src="{% static 'main/js/main.js' %}"></script>
-</body>
-</html>
+        
+        <div class="post-content">
+            <h4 class="post-author">{{ post.author }}</h4>
+           <div class="post-text"> {{ post.text }} </div>
+           <div class="post-bar">
+            <button>like</button>
+            <button class="comment-btn" id="btn-{{post.id}}">comment</button>
+            
+        </div>
+        </div>
+        <div class="replies">
+            <h4>Replies</h4>
+           {% if post.replies.all %}
+        {% for reply in post.replies.all %}
+        <div class="reply">
+            <h4 class="reply-author">{{ reply.author }}</h4>
+            {{reply.text}}
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="no-reply">no replies yet</div>
+        {% endif %}
+        </div>
+
+        </div>
+        {% endfor %}
+        
+        {% else %}
+        <div>No posts available</div>
+        {% endif %}
+    </section>
+{% endblock content %}

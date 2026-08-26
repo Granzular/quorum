@@ -1,10 +1,9 @@
-import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from django.conf import settings
 from library.models import Resource, Course
-import logging
+import logging, re, io, json
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +63,7 @@ def get_resource_index(folder_id:str,parent_name='Root'):
                     "name": item['name'],
                     "parent_name": parent_name,
                     "parent_id": parent_id,
-                    "mime_type": item['mimeType'],
+                    "mime_type":  item['mimeType'],
                     "size": item.get('size'),
                     "download_url": f"https://drive.google.com/uc?export=download&id={item['id']}",
                     "preview_url": item.get('webViewLink'),
@@ -76,9 +75,88 @@ def get_resource_index(folder_id:str,parent_name='Root'):
         logger.error(f"Error crawling folder {folder_id}: {e}")
         return []
 
+
+def __get_resource_index(folder_id:str,level=None,semester=None,parent_name='ROOT_FOLDER'):
+    """
+    Recursively crawls folders and returns a flat list of files,
+    each tagged with its immediate parent folder ID.
+    """
+
+    all_resources = []
+    
+    fields = "nextPageToken, files(id, name, mimeType, size, webViewLink, parents)"
+    query = f"'{folder_id}' in parents and trashed = false"
+
+    try:
+        results = DriveService.files().list(
+            q=query, 
+            fields=fields,
+            pageSize=100 
+        ).execute()
+        
+        items = results.get('files', [])
+
+        for item in items:
+            # Check if the item is a folder
+            if item['mimeType'] == 'application/vnd.google-apps.folder':
+                # Recursively go into the sub-folder
+                all_resources.extend(__get_resource_index(item['id'],level=level,semester=semester,parent_name=item['name']))
+            else:
+                # It's a file! Extract the immediate parent ID
+                # 'parents' is a list, we take the first element [0]
+                parent_id = item.get('parents', [None])[0]
+                
+                all_resources.append({
+                    "drive_id": item['id'],
+                    "name": item['name'],
+                    "parent_name": parent_name,
+                    "parent_id": parent_id,
+                    "level": level,
+                    "semester": semester,
+                    "mime_type":  item['mimeType'],
+                    "size": item.get('size'),
+                    "download_url": f"https://drive.google.com/uc?export=download&id={item['id']}",
+                    "preview_url": item.get('webViewLink'),
+                })
+        
+        return all_resources
+
+    except Exception as e:
+        logger.error(f"Error crawling folder {folder_id}: {e}")
+        return []
+
+
+def pre_indexing():
+    # performs preparatory action before indexing
+    queryset = Resource.objects.only('is_active')
+    for item in queryset:
+        item.is_active = False
+        item.save()
+    
+    
+def post_indexing():
+    # performs clean-up after indexing
+    queryset = Resource.objects.filter(is_active=False).delete()
+
 def start_resource_indexing():
     # 
-    data = get_resource_index(settings.DEFAULT_FOLDER_ID)
+    pre_indexing() # prep
+    #data = get_resource_index(settings.DEFAULT_FOLDER_ID)
+    with open('secrets_config/drive_index_filesystem.json','r') as fd:
+        file = json.loads(fd.read())
+    
+    data = list()
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][0]['children'][0]['id'],level='100',semester='first'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][0]['children'][1]['id'],level='100',semester='second'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][1]['children'][0]['id'],level='200',semester='first'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][1]['children'][1]['id'],level='200',semester='second'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][2]['children'][0]['id'],level='300',semester='first'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][2]['children'][1]['id'],level='300',semester='second'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][3]['children'][0]['id'],level='400',semester='first'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][3]['children'][1]['id'],level='400',semester='second'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][4]['children'][0]['id'],level='500',semester='first'))
+    data.extend(__get_resource_index(file['ROOT_FOLDER']['children'][4]['children'][1]['id'],level='500',semester='second'))
+
     
     if len(data) == 0:
         logger.debug('SYNC did not receive any data')
@@ -95,21 +173,26 @@ def start_resource_indexing():
             try:
                 raw_name = item['parent_name']
                 clean_name = " ".join(raw_name.split())
-                course,created = Course.objects.get_or_create(code__iexact=clean_name,defaults={
+                if re.match(r'^[A-Za-z]{3} \d{3}$',clean_name) == None:
+                    raise ValueError
+                course,created = Course.objects.update_or_create(code__iexact=clean_name,defaults={
                     'drive_id': item['parent_id'],
                     'code': clean_name,
+                    'level': item['level'],
+                    'semester': item['semester'],
                 })
+                resource.is_active = True
+                resource.save()
                 course.resource.add(resource)
 
             except:
-                logger.debug(f"{item['parent_name']} does not exist in db")
+                logger.debug(f"{item['parent_name']} does not match a course code pattern")
 
+        post_indexing()
         logger.debug('Indexing Completed')
             
 
 
-def search(query:str,filter=None):
-    ...
 
 def search_drive_materials(query_text=None, folder_id=None, mime_type=None):
     """
@@ -120,16 +203,16 @@ def search_drive_materials(query_text=None, folder_id=None, mime_type=None):
 
     # 1. Scope by Folder (if provided)
     if folder_id:
-        query_parts.append(f"'{folder_id}' in parents")
+        query_parts.extend(f"'{folder_id}' in parents")
 
     # 2. Filter by Name (Partial match)
     if query_text:
         # Note: 'contains' is case-insensitive for names in Drive API
-        query_parts.append(f"name contains '{query_text}'")
+        query_parts.extend(f"name contains '{query_text}'")
 
     # 3. Filter by MIME Type (e.g., 'application/pdf')
     if mime_type:
-        query_parts.append(f"mimeType = '{mime_type}'")
+        query_parts.extend(f"mimeType = '{mime_type}'")
 
     # Join all parts with AND logic
     final_query = " and ".join(query_parts)

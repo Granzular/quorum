@@ -9,10 +9,12 @@ from rest_framework_simplejwt.views import (
 app_name = 'accounts'
 
 urlpatterns = [
-    path('token/', TokenObtainPairView.as_view()),
-    path('token/refresh/', TokenRefreshView.as_view()),
+    path('auth/token/', TokenObtainPairView.as_view()),
+    path('auth/token/refresh/', TokenRefreshView.as_view()),
     path('student/register/',views.RegisterView.as_view()),
     path('student/register/<str:freshman>/',views.RegisterView.as_view()),
+    path('student/manage-profile/',views.ManageStudentProfileViewset.as_view({'get':'current'})),
+    path('student/manage-profile/avatar/',views.AvatarUploadView.as_view())
         ]
 router = DefaultRouter()
 router.register(r'student/manage-profile',views.ManageStudentProfileViewset,basename='manage-profile')

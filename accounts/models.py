@@ -2,13 +2,14 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 import re
+from uuid6 import uuid7
 
 
 class CustomUser(AbstractUser):
     phone = models.CharField(max_length = 20, blank = True, null = True)
 
 class Profile(models.Model):
-    user = models.ForeignKey(CustomUser,on_delete=models.CASCADE,related_name='profile')
+    user = models.OneToOneField(CustomUser,on_delete=models.CASCADE,related_name='profile')
     avatar = models.ImageField(upload_to = "accounts",null=True,blank=True)
     matric_no = models.CharField(unique=True,max_length=14)
     dept = models.CharField(max_length = 64, default = "Computer Science")

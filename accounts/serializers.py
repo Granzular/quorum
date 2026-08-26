@@ -32,41 +32,41 @@ class RegisterSerializer(serializers.ModelSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
-        fields = ['matric_no', 'dept']
+        fields = ['matric_no', 'dept','avatar']
 
 
 class ManageProfileSerializer(serializers.ModelSerializer):
-    profile = ProfileSerializer(many=True)
+    profile = ProfileSerializer()
 
     class Meta:
         model = User
         fields = ['username', 'email', 'first_name', 'last_name', 'phone', 'profile']
-
-    def create(self, validated_data):
-        profile_data = validated_data.pop('profile', None)
-        user = User.objects.create(**validated_data)
-        
-        if profile_data:
-            Profile.objects.create(user=user, **profile_data)
-        
-        return user
+        extra_kwargs = {
+            'email':{'read_only':True},
+            'phone':{'read_only':True},
+        }
 
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', None)
         
         # Update user fields
+        '''
         instance.username = validated_data.get('username', instance.username)
         instance.email = validated_data.get('email', instance.email)
         instance.first_name = validated_data.get('first_name', instance.first_name)
         instance.last_name = validated_data.get('last_name', instance.last_name)
         instance.phone = validated_data.get('phone', instance.phone)
+        '''
+
+        for attr, value in validated_data.items():
+            setattr(instance,attr,value)
         instance.save()
         
         # Update or create profile
         if profile_data:
-            Profile.objects.update_or_create(
+            Profile.objects.update(
                 user=instance,
-                defaults=profile_data
+                **profile_data
             )
         
         return instance
