@@ -142,7 +142,7 @@ def start_resource_indexing():
     # 
     pre_indexing() # prep
     #data = get_resource_index(settings.DEFAULT_FOLDER_ID)
-    with open('secrets_config/drive_index_filesystem.json','r') as fd:
+    with open('drive_index_filesystem.json','r') as fd:
         file = json.loads(fd.read())
     
     data = list()
