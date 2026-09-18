@@ -34,6 +34,22 @@ class CourseViewset(ReadOnlyModelViewSet):
     serializer_class = CourseSerializer
     pagination_class = CustomPagination
     #permission_classes = [IsAuthenticated,]
+
+    def retrieve(self,request,*args,**kwargs):
+            pk = kwargs.get('pk')
+            try:
+                res = self.queryset.get(id=pk)
+                serializer = CourseSerializer(res)
+                return Response({
+                    'status':'success',
+                    'data': serializer.data
+                }, status=status.HTTP_200_OK)
+            except Course.DoesNotExist:
+                return Response({
+                    'status':'error',
+                    'message':'Course not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+    
         
     @action(detail=False,methods=['GET'])
     def search(self,request):
