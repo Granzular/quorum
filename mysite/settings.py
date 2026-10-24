@@ -12,6 +12,11 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -26,6 +31,10 @@ SECRET_KEY = 'django-insecure-0ul0c@a1g2c(t#9*6%$5y019mvop4*0!zydl65tirv69!aj-21
 DEBUG = False
 
 ALLOWED_HOSTS = []
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = ['http://localhost:5173'] + os.environ.get("CORS_ALLOWED_ORIGINS","").split(',')
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 
 
@@ -45,6 +54,7 @@ INSTALLED_APPS = [
     'main',
     # third-party
     'rest_framework',
+    'drf_spectacular',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
 ]
@@ -52,6 +62,7 @@ INSTALLED_APPS = [
 # REST-FRAMEWORK CONFIG
 
 REST_FRAMEWORK = {
+        'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
         'DEFAULT_PARSER_CLASSES': [
             'rest_framework.parsers.JSONParser'
             ],
@@ -62,6 +73,12 @@ REST_FRAMEWORK = {
         'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
         'PAGE_SIZE': 10
         }
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Quorum API',
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SERVE_INCLUDE_SCHEMA': False,
+}
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
@@ -155,3 +172,15 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / '../staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+
+REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'].append('rest_framework.renderers.BrowsableAPIRenderer')
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / '../media'
+
+# GOOGLE DRIVE API SETTINGS
+
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+SERVICE_ACCOUNT_FILE = BASE_DIR / os.getenv('SERVICE_ACCOUNT_FILE_PATH','')
+DEFAULT_FOLDER_ID = os.getenv('DEFAULT_FOLDER_ID')

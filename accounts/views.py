@@ -1,105 +1,207 @@
-from rest_framework import status
-from rest_framework import generics, mixins, viewsets
-from rest_framework.viewsets import ModelViewSet
-from rest_framework.views import APIView
-from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from rest_framework import generics, mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser
-from accounts.serializers import RegisterSerializer, ManageProfileSerializer, ProfileSerializer
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from accounts.activation import activation_credentials
 from accounts.models import CustomUser as User, Profile
+from accounts.permissions import CanProvisionAccount
+from accounts.serializers import (
+    ActivateAccountSerializer,
+    AvatarResponseSerializer,
+    CurrentProfileResponseSerializer,
+    ManageProfileReadSerializer,
+    ManageProfileSerializer,
+    ProfileResponseSerializer,
+    ProfileSerializer,
+    ProfileUpdateSerializer,
+    ProvisionAccountResponseSerializer,
+    ProvisionAccountSerializer,
+    SuccessSerializer,
+)
 
 
-class RegisterView(generics.CreateAPIView):
+FIELD_ERRORS = OpenApiResponse(
+    response=OpenApiTypes.OBJECT,
+    description="Field-keyed validation errors; profile update errors are nested under profile.",
+)
+UNAUTHENTICATED = OpenApiResponse(description="A valid JWT is required.")
+FORBIDDEN = OpenApiResponse(description="The account lacks the required Django permissions.")
+
+
+@extend_schema(
+    responses={
+        201: ProvisionAccountResponseSerializer, 400: FIELD_ERRORS,
+        401: UNAUTHENTICATED, 403: FORBIDDEN,
+    },
+    tags=["Accounts"],
+)
+class ProvisionAccountView(generics.CreateAPIView):
+    """Provision an inactive account and return activation credentials for private sharing.
+
+    Requires accounts.add_customuser and accounts.add_profile. Supply profile_type
+    and its category fields using the existing flat input format. A student needs
+    matric_no and level; alumni need matric_no and graduation_year; staff need
+    job_title. Every inapplicable field is rejected, including empty or null values.
+    The user chooses a password during activation. Groups and permissions are
+    managed separately in Django admin.
     """
-    POST:
-    fields: username, matric_no, password
-    endpoint: api/v0/accounts/student/register/
 
-    GET: Method not allowed
+    serializer_class = ProvisionAccountSerializer
+    permission_classes = [IsAuthenticated, CanProvisionAccount]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(
+            {"username": user.username, "activation": activation_credentials(user)},
+            status=status.HTTP_201_CREATED,
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+@extend_schema(deprecated=True)
+class RegisterView(ProvisionAccountView):
+    """Legacy provisioning alias with the same administrative permissions.
+
+    Public registration is disabled. Use /api/accounts/provision/.
     """
-    queryset = User.objects.all()
-    serializer_class = RegisterSerializer
-    permission_classes = (AllowAny,) # Anyone can sign up
 
 
-class ManageStudentProfileViewset(mixins.UpdateModelMixin,viewsets.GenericViewSet):
-   
-    queryset = User.objects.only('username','email','first_name','last_name','phone')
+class FreshmanRegisterView(RegisterView):
+    """Retain the legacy freshman URL as an administrative provisioning alias."""
+
+    @extend_schema(operation_id="accounts_student_register_freshman_create")
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+
+@extend_schema(
+    responses={200: SuccessSerializer, 400: FIELD_ERRORS},
+    tags=["Accounts"],
+)
+class ActivateAccountView(generics.GenericAPIView):
+    """Activate a provisioned account using uid, token, and a new password.
+
+    Tokens expire according to PASSWORD_RESET_TIMEOUT and are consumed when
+    activation sets the password. Django password validators apply. A successful
+    activation enables the existing JWT login flow and does not change groups,
+    permissions, or profile fields.
+    """
+
+    serializer_class = ActivateAccountSerializer
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"status": "success"}, headers={"Cache-Control": "no-store"})
+
+
+@extend_schema_view(
+    partial_update=extend_schema(
+        responses={
+            200: ManageProfileReadSerializer, 400: FIELD_ERRORS,
+            401: UNAUTHENTICATED,
+            404: OpenApiResponse(description="The profile is missing or outside the caller's access."),
+        },
+        tags=["Profiles"],
+    ),
+    current=extend_schema(
+        responses={
+            200: CurrentProfileResponseSerializer, 401: UNAUTHENTICATED,
+            404: OpenApiResponse(description="The current account has no profile."),
+        },
+        tags=["Profiles"],
+    ),
+)
+class ManageStudentProfileViewset(mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    """Read the current profile or partially update an account's nested profile.
+
+    The legacy student path supports all three categories. Ordinary users may
+    update their own account and common/profile fields, except level and category.
+    accounts.change_profile permits editing other profiles and changing levels.
+    Editing another account's username or names also requires
+    accounts.change_customuser. Category changes and legacy classification use
+    Django admin. Inapplicable fields are rejected even when explicitly empty.
+    """
+
+    queryset = User.objects.select_related("profile").filter(profile__isnull=False)
     serializer_class = ManageProfileSerializer
-    http_method_names = ['get','patch','head','options']
+    http_method_names = ["get", "patch", "head", "options"]
     permission_classes = [IsAuthenticated]
 
-    @action(methods=['get'],detail=True)
-    def current(self,request,*args,**kwargs):
-        user = request.user
-        profile = user.profile
-        serializer = ManageProfileSerializer(user)
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if getattr(self, "swagger_fake_view", False):
+            return queryset.none()
+        if self.request.user.has_perm("accounts.change_profile"):
+            return queryset
+        return queryset.filter(pk=self.request.user.pk)
+
+    @action(methods=["get"], detail=True)
+    def current(self, request, *args, **kwargs):
+        """Return the authenticated account, regardless of any legacy URL id."""
+        user = get_object_or_404(self.get_queryset(), pk=request.user.pk)
         return Response({
-            'status' : 'success',
-            'data': serializer.data
+            "status": "success",
+            "data": ManageProfileSerializer(user).data,
         })
 
 
 class AvatarUploadView(APIView):
+    """Read or update the current account's profile through the avatar endpoint.
 
+    PUT accepts multipart/form-data or form data with the avatar field. Existing
+    profile fields remain accepted and follow the same category and administrative
+    level restrictions as nested profile updates. Missing fields are unchanged.
     """
-    Handles user profile image upload.
-
-    This endpoint accepts file uploads via multipart/form-data and stores
-    the uploaded image in the configured media storage (e.g., MEDIA_ROOT
-    or external storage like S3 depending on deployment).
-
-    Request format:
-        - Content-Type: multipart/form-data
-        - Body:
-            file: image file (required)
-
-    Example request:
-        POST /api/accounts/student/manage-profile/1/
-        Content-Type: multipart/form-data
-
-        file: <binary image file>
-
-    Response format:
-        The API always responds with JSON.
-
-    Example response:
-        {
-            "status": "success",
-            "message": "Avatar uploaded successfully",
-            "avatar_url": "/media/avatars/user_1.png"
-        }
-
-    Notes:
-        - Only authenticated users can access this endpoint.
-        - Existing avatars may be overwritten depending on implementation.
-        - Supported formats depend on Django/Pillow configuration.
-"""
 
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            200: AvatarResponseSerializer, 401: UNAUTHENTICATED,
+            404: OpenApiResponse(description="The current account has no profile."),
+        },
+        tags=["Profiles"],
+    )
     def get(self, request):
-        profile = request.user.profile
-        avatar = profile.avatar
-        avatar = avatar.url if avatar else None
-
+        profile = get_object_or_404(Profile, user=request.user)
         return Response({
-            'status' : 'success',
-            'data': {'avatar':avatar}
+            "status": "success",
+            "data": {"avatar": profile.avatar.url if profile.avatar else None},
         })
 
+    @extend_schema(
+        request=ProfileUpdateSerializer,
+        responses={
+            200: ProfileResponseSerializer, 400: FIELD_ERRORS, 401: UNAUTHENTICATED,
+            404: OpenApiResponse(description="The current account has no profile."),
+        },
+        description=(
+            "Partially update the current profile using form data. Every field is "
+            "optional in this PUT request. An uploaded image uses the avatar field; "
+            "category validation applies to any other supplied profile fields. "
+            "Level changes require accounts.change_profile; category changes use Django admin."
+        ),
+        tags=["Profiles"],
+    )
     def put(self, request):
-        profile = request.user.profile
-        serializer = ProfileSerializer(profile, data=request.data, partial=True)
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response({
-                'status': 'success',
-                'data': serializer.data,
-            })
-
-        return Response(serializer.errors, status=400)
-
-    
+        profile = get_object_or_404(Profile, user=request.user)
+        serializer = ProfileUpdateSerializer(
+            profile, data=request.data, partial=True, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"status": "success", "data": ProfileSerializer(profile).data})

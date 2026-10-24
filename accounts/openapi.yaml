@@ -1,0 +1,783 @@
+openapi: 3.0.3
+info:
+  title: Quorum API
+  version: 0.0.0
+paths:
+  /api/accounts/activate/:
+    post:
+      operationId: accounts_activate_create
+      description: |-
+        Activate a provisioned account using uid, token, and a new password.
+
+        Tokens expire according to PASSWORD_RESET_TIMEOUT and are consumed when
+        activation sets the password. Django password validators apply. A successful
+        activation enables the existing JWT login flow and does not change groups,
+        permissions, or profile fields.
+      tags:
+      - Accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateAccountRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+  /api/accounts/auth/token/:
+    post:
+      operationId: accounts_auth_token_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/accounts/auth/token/refresh/:
+    post:
+      operationId: accounts_auth_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/accounts/provision/:
+    post:
+      operationId: accounts_provision_create
+      description: |-
+        Provision an inactive account and return activation credentials for private sharing.
+
+        Requires accounts.add_customuser and accounts.add_profile. Supply profile_type
+        and its category fields using the existing flat input format. A student needs
+        matric_no and level; alumni need matric_no and graduation_year; staff need
+        job_title. Every inapplicable field is rejected, including empty or null values.
+        The user chooses a password during activation. Groups and permissions are
+        managed separately in Django admin.
+      tags:
+      - Accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionAccountResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+        '401':
+          description: A valid JWT is required.
+        '403':
+          description: The account lacks the required Django permissions.
+  /api/accounts/student/manage-profile/:
+    get:
+      operationId: accounts_student_manage_profile_retrieve
+      description: Return the authenticated account, regardless of any legacy URL
+        id.
+      tags:
+      - Profiles
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentProfileResponse'
+          description: ''
+        '401':
+          description: A valid JWT is required.
+        '404':
+          description: The current account has no profile.
+  /api/accounts/student/manage-profile/{id}/:
+    patch:
+      operationId: accounts_student_manage_profile_partial_update
+      description: |-
+        Read the current profile or partially update an account's nested profile.
+
+        The legacy student path supports all three categories. Ordinary users may
+        update their own account and common/profile fields, except level and category.
+        accounts.change_profile permits editing other profiles and changing levels.
+        Editing another account's username or names also requires
+        accounts.change_customuser. Category changes and legacy classification use
+        Django admin. Inapplicable fields are rejected even when explicitly empty.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Profiles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedManageProfileRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManageProfileRead'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+        '401':
+          description: A valid JWT is required.
+        '404':
+          description: The profile is missing or outside the caller's access.
+  /api/accounts/student/manage-profile/{id}/current/:
+    get:
+      operationId: accounts_student_manage_profile_current_retrieve
+      description: Return the authenticated account, regardless of any legacy URL
+        id.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Profiles
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentProfileResponse'
+          description: ''
+        '401':
+          description: A valid JWT is required.
+        '404':
+          description: The current account has no profile.
+  /api/accounts/student/manage-profile/avatar/:
+    get:
+      operationId: accounts_student_manage_profile_avatar_retrieve
+      description: |-
+        Read or update the current account's profile through the avatar endpoint.
+
+        PUT accepts multipart/form-data or form data with the avatar field. Existing
+        profile fields remain accepted and follow the same category and administrative
+        level restrictions as nested profile updates. Missing fields are unchanged.
+      tags:
+      - Profiles
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarResponse'
+          description: ''
+        '401':
+          description: A valid JWT is required.
+        '404':
+          description: The current account has no profile.
+    put:
+      operationId: accounts_student_manage_profile_avatar_update
+      description: Partially update the current profile using form data. Every field
+        is optional in this PUT request. An uploaded image uses the avatar field;
+        category validation applies to any other supplied profile fields. Level changes
+        require accounts.change_profile; category changes use Django admin.
+      tags:
+      - Profiles
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+        '401':
+          description: A valid JWT is required.
+        '404':
+          description: The current account has no profile.
+  /api/accounts/student/register/:
+    post:
+      operationId: accounts_student_register_create
+      description: |-
+        Legacy provisioning alias with the same administrative permissions.
+
+        Public registration is disabled. Use /api/accounts/provision/.
+      tags:
+      - Accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      deprecated: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionAccountResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+        '401':
+          description: A valid JWT is required.
+        '403':
+          description: The account lacks the required Django permissions.
+  /api/accounts/student/register/{freshman}/:
+    post:
+      operationId: accounts_student_register_freshman_create
+      description: Retain the legacy freshman URL as an administrative provisioning
+        alias.
+      parameters:
+      - in: path
+        name: freshman
+        schema:
+          type: string
+        required: true
+      tags:
+      - Accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProvisionAccountRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      deprecated: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionAccountResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+        '401':
+          description: A valid JWT is required.
+        '403':
+          description: The account lacks the required Django permissions.
+components:
+  schemas:
+    ActivateAccountRequest:
+      type: object
+      properties:
+        uid:
+          type: string
+          minLength: 1
+        token:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - token
+      - uid
+    ActivationCredentials:
+      type: object
+      properties:
+        uid:
+          type: string
+        token:
+          type: string
+      required:
+      - token
+      - uid
+    AvatarData:
+      type: object
+      properties:
+        avatar:
+          type: string
+          nullable: true
+      required:
+      - avatar
+    AvatarResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        data:
+          $ref: '#/components/schemas/AvatarData'
+      required:
+      - data
+      - status
+    CurrentProfileResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        data:
+          $ref: '#/components/schemas/ManageProfileRead'
+      required:
+      - data
+      - status
+    LevelEnum:
+      enum:
+      - 100
+      - 200
+      - 300
+      - 400
+      - 500
+      type: integer
+      description: |-
+        * `100` - 100
+        * `200` - 200
+        * `300` - 300
+        * `400` - 400
+        * `500` - 500
+    ManageProfileRead:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone:
+          type: string
+          readOnly: true
+          nullable: true
+        profile:
+          allOf:
+          - $ref: '#/components/schemas/ProfileRead'
+          readOnly: true
+      required:
+      - email
+      - phone
+      - profile
+      - username
+    NullEnum:
+      enum:
+      - null
+    PatchedManageProfileRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        profile:
+          $ref: '#/components/schemas/ProfileRequest'
+    ProfileRead:
+      type: object
+      properties:
+        profile_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ProfileTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        matric_no:
+          type: string
+          readOnly: true
+          nullable: true
+        level:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LevelEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        graduation_year:
+          type: integer
+          readOnly: true
+          nullable: true
+        job_title:
+          type: string
+          readOnly: true
+        dept:
+          type: string
+          readOnly: true
+        avatar:
+          type: string
+          format: uri
+          readOnly: true
+          nullable: true
+        bio:
+          type: string
+          readOnly: true
+        linkedin_url:
+          type: string
+          format: uri
+          readOnly: true
+      required:
+      - avatar
+      - bio
+      - dept
+      - graduation_year
+      - job_title
+      - level
+      - linkedin_url
+      - matric_no
+      - profile_type
+    ProfileRequest:
+      type: object
+      properties:
+        profile_type:
+          $ref: '#/components/schemas/ProfileTypeEnum'
+        matric_no:
+          type: string
+          nullable: true
+          pattern: ^(?:CSC/\d{2}/\d{4}|\d{12}[A-Za-z]{2})$
+          maxLength: 14
+        level:
+          nullable: true
+          minimum: 0
+          maximum: 9223372036854775807
+          oneOf:
+          - $ref: '#/components/schemas/LevelEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        graduation_year:
+          type: integer
+          maximum: 9999
+          minimum: 1
+          nullable: true
+        job_title:
+          type: string
+          maxLength: 128
+        dept:
+          type: string
+          minLength: 1
+          maxLength: 64
+        avatar:
+          type: string
+          format: binary
+          nullable: true
+        bio:
+          type: string
+        linkedin_url:
+          type: string
+          format: uri
+          maxLength: 200
+      required:
+      - profile_type
+    ProfileResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        data:
+          $ref: '#/components/schemas/ProfileRead'
+      required:
+      - data
+      - status
+    ProfileTypeEnum:
+      enum:
+      - student
+      - alumni
+      - staff
+      type: string
+      description: |-
+        * `student` - Student
+        * `alumni` - Alumni
+        * `staff` - Staff
+    ProfileUpdateRequest:
+      type: object
+      properties:
+        profile_type:
+          $ref: '#/components/schemas/ProfileTypeEnum'
+        matric_no:
+          type: string
+          nullable: true
+          pattern: ^(?:CSC/\d{2}/\d{4}|\d{12}[A-Za-z]{2})$
+          maxLength: 14
+        level:
+          nullable: true
+          minimum: 0
+          maximum: 9223372036854775807
+          oneOf:
+          - $ref: '#/components/schemas/LevelEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        graduation_year:
+          type: integer
+          maximum: 9999
+          minimum: 1
+          nullable: true
+        job_title:
+          type: string
+          maxLength: 128
+        dept:
+          type: string
+          minLength: 1
+          maxLength: 64
+        avatar:
+          type: string
+          format: binary
+          nullable: true
+        bio:
+          type: string
+        linkedin_url:
+          type: string
+          format: uri
+          maxLength: 200
+    ProvisionAccountRequest:
+      type: object
+      description: Keep flat account/profile input while sharing the profile's field
+        rules.
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        profile_type:
+          allOf:
+          - $ref: '#/components/schemas/ProfileTypeEnum'
+          writeOnly: true
+        matric_no:
+          type: string
+          writeOnly: true
+          nullable: true
+          pattern: ^(?:CSC/\d{2}/\d{4}|\d{12}[A-Za-z]{2})$
+          maxLength: 14
+        level:
+          writeOnly: true
+          nullable: true
+          minimum: 0
+          maximum: 9223372036854775807
+          oneOf:
+          - $ref: '#/components/schemas/LevelEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        graduation_year:
+          type: integer
+          maximum: 9999
+          minimum: 1
+          writeOnly: true
+          nullable: true
+        job_title:
+          type: string
+          writeOnly: true
+          maxLength: 128
+        dept:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 64
+        avatar:
+          type: string
+          format: binary
+          writeOnly: true
+          nullable: true
+        bio:
+          type: string
+          writeOnly: true
+        linkedin_url:
+          type: string
+          format: uri
+          writeOnly: true
+          maxLength: 200
+      required:
+      - profile_type
+      - username
+    ProvisionAccountResponse:
+      type: object
+      properties:
+        username:
+          type: string
+        activation:
+          $ref: '#/components/schemas/ActivationCredentials'
+      required:
+      - activation
+      - username
+    StatusEnum:
+      enum:
+      - success
+      type: string
+      description: '* `success` - success'
+    Success:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+      required:
+      - status
+    TokenObtainPair:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    TokenObtainPairRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
