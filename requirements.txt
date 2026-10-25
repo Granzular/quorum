@@ -24,6 +24,7 @@ daphne==4.2.1
 decorator==5.2.1
 Django==6.0.3
 django-cors-headers==4.9.0
+django-cloudinary-storage @ git+https://github.com/klis87/django-cloudinary-storage.git@4d17f7db908c4fe4618ff9595fb1fb1c5c722fbe
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
 dotenv==0.9.9

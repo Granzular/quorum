@@ -1,8 +1,13 @@
-from django.db import models
+from django.db import models, router
+from django.conf import settings
 from accounts.models import CustomUser as User
 from uuid6 import uuid7
+from main.media_cleanup import FileCleanupQuerySet, delete_with_file_cleanup, save_with_file_cleanup
+from main.media_storage import file_storage
 
 class Content(models.Model):
+    objects = models.Manager.from_queryset(FileCleanupQuerySet)()
+
     TYPE_CHOICES = [
         ('post','Post'),
         ('comment','Comment')
@@ -13,9 +18,22 @@ class Content(models.Model):
     author = models.ForeignKey(User,on_delete=models.CASCADE)
     text = models.TextField(default=' ')
     parent = models.ForeignKey("self",null=True,blank=True,on_delete=models.CASCADE,related_name="replies")
-    media = models.FileField(upload_to='posts/', blank=True, null=True)
+    media = models.FileField(
+        upload_to=settings.MEDIA_UPLOAD_FOLDERS['community']['posts'],
+        storage=file_storage, blank=True, null=True,
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+
+    def save(self, **kwargs):
+        """Clean up replaced or cleared media after the reference commits."""
+        return save_with_file_cleanup(self, super().save, **kwargs)
+
+    def delete(self, using=None, keep_parents=False):
+        using = using or router.db_for_write(type(self), instance=self)
+        return delete_with_file_cleanup(
+            self, super().delete, using=using, keep_parents=keep_parents,
+        )
 
     def __str__(self):
         return self.title

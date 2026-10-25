@@ -282,7 +282,7 @@ class ProvisioningTests(AccountAPITestCase):
             format="multipart",
         )
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertTrue(User.objects.get(username="with_avatar").profile.avatar.name.startswith("accounts/"))
+        self.assertTrue(User.objects.get(username="with_avatar").profile.avatar.name.startswith("quorum/accounts/avatars/"))
 
 
 class ProfileUpdateTests(AccountAPITestCase):
@@ -480,7 +480,7 @@ class ProfileUpdateTests(AccountAPITestCase):
         response = self.client.put(AVATAR, {"avatar": image_upload()}, format="multipart")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data["status"], "success")
-        self.assertTrue(response.data["data"]["avatar"].startswith("/media/accounts/"))
+        self.assertTrue(response.data["data"]["avatar"].startswith("/media/quorum/accounts/avatars/"))
         self.assertEqual(
             self.client.get(AVATAR).data["data"]["avatar"], response.data["data"]["avatar"]
         )

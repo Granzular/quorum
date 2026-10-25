@@ -90,6 +90,9 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    # Media only: Django's staticfiles app retains collectstatic ownership.
+    'cloudinary_storage',
+    'cloudinary',
 ]
 
 # REST-FRAMEWORK CONFIG
@@ -212,7 +215,28 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / '../staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    'default': {'BACKEND': 'main.media_storage.DynamicFolderMediaCloudinaryStorage'},
+    # Generic community/library FileFields accept non-image files as well.
+    'files': {'BACKEND': 'main.media_storage.DynamicFolderRawMediaCloudinaryStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
+
+# Credentials come from CLOUDINARY_URL (already loaded from the environment/.env)
+# or CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.
+# upload_to supplies the Media Library asset folder without changing public IDs.
+CLOUDINARY_STORAGE = {'PREFIX': '', 'SECURE': True}
+
+# Organizational destinations for new uploads; stored public IDs are independent
+# references returned by storage. Covers reserve a convention for a future field.
+MEDIA_UPLOAD_FOLDERS = {
+    'accounts': {'avatars': 'quorum/accounts/avatars/'},
+    'community': {'posts': 'quorum/community/posts/'},
+    'library': {
+        'covers': 'quorum/library/covers/',
+        'resources': 'quorum/library/resources/',
+    },
+}
 
 
 REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'].append('rest_framework.renderers.BrowsableAPIRenderer')

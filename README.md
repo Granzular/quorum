@@ -211,6 +211,16 @@ Each request receives a server-generated ID returned in `X-Request-ID`.
 See [the logging guide](docs/logging.md) for the schema, request correlation,
 safe logging conventions, configuration, and focused verification commands.
 
+### Media Storage
+
+Cloudinary stores profile avatars and existing community/library uploaded files
+through Django's storage backends. Configure `CLOUDINARY_URL` or the individual
+Cloudinary credential environment variables, then apply the new migrations.
+Static files continue to use WhiteNoise.
+
+See [the media storage guide](docs/media-storage.md) for configuration, feature
+folders, explicit cleanup behavior, migration state, and verification details.
+
 ### Apply Database Migrations
 
 ```bash

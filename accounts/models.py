@@ -1,7 +1,14 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, UserManager
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
-from django.db import models
+from django.db import models, router
+
+from main.media_cleanup import FileCleanupQuerySet, delete_with_file_cleanup, save_with_file_cleanup
+
+
+class CustomUserManager(UserManager.from_queryset(FileCleanupQuerySet)):
+    """Preserve user provisioning and cover deletion of file-owning dependants."""
 
 
 validate_matric_no = RegexValidator(
@@ -11,10 +18,20 @@ validate_matric_no = RegexValidator(
 
 
 class CustomUser(AbstractUser):
+    objects = CustomUserManager()
+
     phone = models.CharField(max_length = 20, blank = True, null = True)
+
+    def delete(self, using=None, keep_parents=False):
+        using = using or router.db_for_write(type(self), instance=self)
+        return delete_with_file_cleanup(
+            self, super().delete, using=using, keep_parents=keep_parents,
+        )
 
 
 class Profile(models.Model):
+    objects = models.Manager.from_queryset(FileCleanupQuerySet)()
+
     class Type(models.TextChoices):
         STUDENT = "student", "Student"
         ALUMNI = "alumni", "Alumni"
@@ -38,7 +55,9 @@ class Profile(models.Model):
         CustomUser, on_delete=models.CASCADE, related_name="profile"
     )
     profile_type = models.CharField(max_length=7, choices=Type.choices)
-    avatar = models.ImageField(upload_to="accounts", null=True, blank=True)
+    avatar = models.ImageField(
+        upload_to=settings.MEDIA_UPLOAD_FOLDERS['accounts']['avatars'], null=True, blank=True,
+    )
     matric_no = models.CharField(
         unique=True, max_length=14, null=True, blank=True,
         validators=[validate_matric_no],
@@ -54,6 +73,16 @@ class Profile(models.Model):
     dept = models.CharField(max_length=64, default="Computer Science")
     bio = models.TextField(blank=True)
     linkedin_url = models.URLField(blank=True)
+
+    def save(self, **kwargs):
+        """Clean up replaced or cleared avatars after their reference commits."""
+        return save_with_file_cleanup(self, super().save, **kwargs)
+
+    def delete(self, using=None, keep_parents=False):
+        using = using or router.db_for_write(type(self), instance=self)
+        return delete_with_file_cleanup(
+            self, super().delete, using=using, keep_parents=keep_parents,
+        )
 
     def clean(self):
         """Validate the category's required fields and reject other stored values."""
