@@ -38,14 +38,46 @@ paths:
                 additionalProperties: {}
           description: Field-keyed validation errors; profile update errors are nested
             under profile.
+        '429':
+          description: The authentication rate limit was exceeded.
+  /api/accounts/auth/logout/:
+    post:
+      operationId: accounts_auth_logout_create
+      description: |-
+        Blacklist the authenticated account's refresh token.
+
+        The access token used for this request remains valid until its normal expiry.
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: The supplied refresh token was blacklisted.
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Field-keyed validation errors; profile update errors are nested
+            under profile.
+        '401':
+          description: A valid JWT is required.
+        '429':
+          description: The authentication rate limit was exceeded.
   /api/accounts/auth/token/:
     post:
       operationId: accounts_auth_token_create
-      description: |-
-        Takes a set of user credentials and returns an access and refresh JSON web
-        token pair to prove the authentication of those credentials.
+      description: Issue an access/refresh token pair for an active account.
       tags:
-      - accounts
+      - Authentication
       requestBody:
         content:
           application/json:
@@ -59,27 +91,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenObtainPair'
           description: ''
+        '401':
+          description: The credentials or token were invalid, expired, or revoked.
+        '429':
+          description: The authentication rate limit was exceeded.
   /api/accounts/auth/token/refresh/:
     post:
       operationId: accounts_auth_token_refresh_create
-      description: |-
-        Takes a refresh type JSON web token and returns an access type JSON web
-        token if the refresh token is valid.
+      description: Rotate a valid refresh token and issue a new access token.
       tags:
-      - accounts
+      - Authentication
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TokenRefreshRequest'
+              $ref: '#/components/schemas/RevokingTokenRefreshRequest'
         required: true
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenRefresh'
+                $ref: '#/components/schemas/RevokingTokenRefresh'
           description: ''
+        '401':
+          description: The credentials or token were invalid, expired, or revoked.
+        '429':
+          description: The authentication rate limit was exceeded.
   /api/accounts/provision/:
     post:
       operationId: accounts_provision_create
@@ -157,8 +195,8 @@ paths:
         update their own account and common/profile fields, except level and category.
         accounts.change_profile permits editing other profiles and changing levels.
         Editing another account's username or names also requires
-        accounts.change_customuser. Category changes and legacy classification use
-        Django admin. Inapplicable fields are rejected even when explicitly empty.
+        accounts.change_customuser. Category changes use Django admin. Inapplicable
+        fields are rejected even when explicitly empty.
       parameters:
       - in: path
         name: id
@@ -443,6 +481,16 @@ components:
         * `300` - 300
         * `400` - 400
         * `500` - 500
+    LogoutRequest:
+      type: object
+      description: Validate and blacklist the authenticated user's refresh token.
+      properties:
+        refresh:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - refresh
     ManageProfileRead:
       type: object
       properties:
@@ -501,11 +549,9 @@ components:
       type: object
       properties:
         profile_type:
-          readOnly: true
-          nullable: true
-          oneOf:
+          allOf:
           - $ref: '#/components/schemas/ProfileTypeEnum'
-          - $ref: '#/components/schemas/NullEnum'
+          readOnly: true
         matric_no:
           type: string
           readOnly: true
@@ -719,6 +765,27 @@ components:
       required:
       - activation
       - username
+    RevokingTokenRefresh:
+      type: object
+      description: Reject refresh tokens issued before the account password changed.
+      properties:
+        refresh:
+          type: string
+        access:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    RevokingTokenRefreshRequest:
+      type: object
+      description: Reject refresh tokens issued before the account password changed.
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
     StatusEnum:
       enum:
       - success
@@ -757,25 +824,6 @@ components:
       required:
       - password
       - username
-    TokenRefresh:
-      type: object
-      properties:
-        access:
-          type: string
-          readOnly: true
-        refresh:
-          type: string
-      required:
-      - access
-      - refresh
-    TokenRefreshRequest:
-      type: object
-      properties:
-        refresh:
-          type: string
-          minLength: 1
-      required:
-      - refresh
   securitySchemes:
     jwtAuth:
       type: http

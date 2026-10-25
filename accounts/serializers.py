@@ -8,6 +8,12 @@ from django.db import transaction
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.utils import get_md5_hash_password
 
 from accounts.models import CustomUser as User, Profile
 
@@ -67,7 +73,7 @@ class ProfileUpdateSerializer(ProfileSerializer):
 
 class ProfileReadSerializer(ProfileSerializer):
     profile_type = serializers.ChoiceField(
-        choices=Profile.Type.choices, allow_null=True, read_only=True
+        choices=Profile.Type.choices, read_only=True
     )
 
     class Meta(ProfileSerializer.Meta):
@@ -149,6 +155,59 @@ class ActivateAccountSerializer(serializers.Serializer):
             raise serializers.ValidationError({"token": [self.invalid_token_message]})
         user.is_active = True
         return user
+
+
+class LogoutSerializer(serializers.Serializer):
+    """Validate and blacklist the authenticated user's refresh token."""
+
+    refresh = serializers.CharField(write_only=True, trim_whitespace=False)
+    invalid_token_message = "This refresh token is invalid or has expired."
+
+    def validate_refresh(self, value):
+        try:
+            token = RefreshToken(value)
+        except TokenError:
+            raise serializers.ValidationError(self.invalid_token_message)
+
+        request = self.context.get("request")
+        token_user_id = token.get(jwt_settings.USER_ID_CLAIM)
+        request_user_id = getattr(request.user, jwt_settings.USER_ID_FIELD, None)
+        if str(token_user_id) != str(request_user_id):
+            raise serializers.ValidationError(self.invalid_token_message)
+
+        self.token = token
+        return value
+
+    def save(self, **kwargs):
+        self.token.blacklist()
+
+
+class RevokingTokenRefreshSerializer(TokenRefreshSerializer):
+    """Reject refresh tokens issued before the account password changed."""
+
+    def validate(self, attrs):
+        refresh = self.token_class(attrs["refresh"])
+        user_id = refresh.payload.get(jwt_settings.USER_ID_CLAIM)
+        try:
+            user = User.objects.get(**{jwt_settings.USER_ID_FIELD: user_id})
+        except User.DoesNotExist:
+            raise AuthenticationFailed(
+                self.error_messages["no_active_account"], "no_active_account"
+            )
+
+        if not jwt_settings.USER_AUTHENTICATION_RULE(user):
+            raise AuthenticationFailed(
+                self.error_messages["no_active_account"], "no_active_account"
+            )
+        if (
+            jwt_settings.CHECK_REVOKE_TOKEN
+            and refresh.get(jwt_settings.REVOKE_TOKEN_CLAIM)
+            != get_md5_hash_password(user.password)
+        ):
+            raise AuthenticationFailed(
+                "The user's password has been changed.", "password_changed"
+            )
+        return super().validate(attrs)
 
 
 class ManageProfileSerializer(serializers.ModelSerializer):

@@ -37,8 +37,7 @@ class Profile(models.Model):
     user = models.OneToOneField(
         CustomUser, on_delete=models.CASCADE, related_name="profile"
     )
-    # NULL preserves legacy rows until an administrator can classify them.
-    profile_type = models.CharField(max_length=7, choices=Type.choices, null=True)
+    profile_type = models.CharField(max_length=7, choices=Type.choices)
     avatar = models.ImageField(upload_to="accounts", null=True, blank=True)
     matric_no = models.CharField(
         unique=True, max_length=14, null=True, blank=True,

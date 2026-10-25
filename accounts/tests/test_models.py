@@ -31,10 +31,16 @@ class ProfileModelTests(TestCase):
             Profile(user=self.user, **profile_payload("staff"), level=200).full_clean()
         self.assertIn("level", caught.exception.message_dict)
 
-    def test_new_profile_requires_type_even_though_database_preserves_legacy_nulls(self):
+    def test_new_profile_requires_type(self):
         with self.assertRaises(ValidationError) as caught:
             Profile(user=self.user, matric_no="CSC/24/1234").full_clean()
         self.assertIn("profile_type", caught.exception.message_dict)
+
+    def test_database_rejects_null_profile_type(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Profile.objects.create(
+                user=self.user, profile_type=None, matric_no="CSC/24/1234", level=300
+            )
 
     def test_matriculation_validator_requires_complete_string(self):
         with self.assertRaises(ValidationError) as caught:

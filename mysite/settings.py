@@ -24,8 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-0ul0c@a1g2c(t#9*6%$5y019mvop4*0!zydl65tirv69!aj-21'
+# Required in the process environment or the local, ignored .env file.
+SECRET_KEY = os.environ['SECRET_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -71,7 +71,13 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
         'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-        'PAGE_SIZE': 10
+        'PAGE_SIZE': 10,
+        'DEFAULT_THROTTLE_RATES': {
+            'auth_login': os.environ.get('AUTH_LOGIN_THROTTLE_RATE', '10/minute'),
+            'auth_refresh': os.environ.get('AUTH_REFRESH_THROTTLE_RATE', '30/minute'),
+            'auth_activation': os.environ.get('AUTH_ACTIVATION_THROTTLE_RATE', '10/minute'),
+            'auth_logout': os.environ.get('AUTH_LOGOUT_THROTTLE_RATE', '30/minute'),
+        },
         }
 
 SPECTACULAR_SETTINGS = {
@@ -86,6 +92,7 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    "CHECK_REVOKE_TOKEN": True,
 }
 
 

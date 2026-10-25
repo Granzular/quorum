@@ -10,7 +10,7 @@ describe membership; Django Groups and permissions control authorization.
 2. The account is inactive and has no usable password. The administrator receives
    an activation uid and token to share privately with the user.
 3. The user submits the uid, token, and a new password to activate the account.
-   The existing JWT endpoints then provide login and token refresh.
+   The JWT endpoints then provide login, token refresh, and refresh-token logout.
 
 There is no public registration. No email delivery, approval state, role field,
 or automatic group assignment is involved. Activation preserves any memberships
@@ -26,6 +26,11 @@ Tokens use Django's password-reset token utility and PASSWORD_RESET_TIMEOUT
 subsequent activation requests cannot reuse it. Passwords must satisfy the
 configured Django password validators. A disabled existing account with a usable
 password cannot use this activation flow to reactivate itself.
+
+JWT access tokens last 30 minutes and refresh tokens last one day. Refresh rotates
+the token and blacklists the submitted token. Changing an account password revokes
+both existing access and refresh tokens. Logout blacklists the submitted refresh
+token; its already-issued access token remains valid until its normal expiry.
 
 ## Profile fields
 
@@ -66,6 +71,7 @@ All paths below start with /api/accounts/.
 | POST activate/ | Accepts uid, token, and password; no JWT required. |
 | POST auth/token/ | Existing JWT login; inactive accounts cannot log in. |
 | POST auth/token/refresh/ | Existing JWT refresh. |
+| POST auth/logout/ | Requires JWT and the current account's refresh token; blacklists that refresh token. |
 | GET student/manage-profile/ | Returns the authenticated account and nested profile. |
 | PATCH student/manage-profile/{user_id}/ | Partially updates account fields and a nested profile object. |
 | GET student/manage-profile/{user_id}/current/ | Legacy current-account action; always returns the authenticated account. |
@@ -83,10 +89,10 @@ directly or through a Group. Changing another account's username, first name,
 or last name additionally requires accounts.change_customuser. Merely having a
 staff profile, or setting CustomUser.is_staff, does not grant these API permissions.
 
-Category changes, including completion of an unclassified legacy profile, use
-Django admin. The administrator must explicitly clear fields belonging to the
-old category and provide the new required fields. API requests cannot change
-an existing category. The same restrictions apply through the avatar endpoint.
+Category changes use Django admin. The administrator must explicitly clear fields
+belonging to the old category and provide the new required fields. API requests
+cannot change an existing category. The same restrictions apply through the avatar
+endpoint.
 
 Django admin additionally requires an active account with is_staff. Profile
 edits use its standard model permissions. Adding a CustomUser through UserAdmin
@@ -140,6 +146,26 @@ Success returns 200 with {"status": "success"}. Invalid, expired, or consumed
 credentials return a token field error; invalid passwords return a password
 field error. Activation does not automatically issue JWTs.
 
+### Logout and throttling
+
+POST /api/accounts/auth/logout/ with a valid access token:
+
+~~~json
+{
+  "refresh": "<current refresh token>"
+}
+~~~
+
+Success returns 204 without a response body. The refresh token must belong to the
+same account as the access token. Invalid, expired, already-blacklisted, or
+cross-account tokens return a refresh field error.
+
+Authentication endpoints use scoped throttles. Development defaults are 10 login
+requests/minute, 30 refresh requests/minute, 10 activation requests/minute, and
+30 logout requests/minute per DRF client identity. Override them with
+AUTH_LOGIN_THROTTLE_RATE, AUTH_REFRESH_THROTTLE_RATE,
+AUTH_ACTIVATION_THROTTLE_RATE, and AUTH_LOGOUT_THROTTLE_RATE.
+
 ### Partial update
 
 PATCH /api/accounts/student/manage-profile/{user_id}/:
@@ -178,24 +204,32 @@ New provisioning requires an explicit category and its required fields, and no
 longer accepts a password. Profile responses add the new fields. Frontend/mobile
 applications are maintained separately and are not changed here.
 
-Migration 0008_profile_categories adds the fields without assigning a category,
-level, or graduation year to existing profiles. Existing account relationships,
-matriculation numbers, department values, avatars, and authorization data are
-preserved. The category column temporarily permits NULL to retain legacy records,
-while serializers and admin forms require a complete category for new profiles.
+Migration 0008_profile_categories adds the category fields. Migration
+0009_backfill_legacy_profiles then assigns student to profiles whose profile_type
+is NULL and defaults their missing level to 300. It then makes profile_type
+non-nullable, so the database rejects NULL categories. Recorded levels and already
+classified profiles are preserved. This is a one-time data backfill; new accounts
+still require an explicit category and its required fields. Level remains nullable
+for alumni and staff, where it does not apply.
 
-Existing unclassified profiles remain readable, with profile_type: null. Profile
-writes require administrator completion first. In Django admin, select each
-record's actual category and supply its required fields. A later, separately
-reviewed migration may make profile_type non-nullable after every legacy row
-has been completed. Scripts using the ORM directly should call full_clean();
-Django save() does not automatically run model validation.
+Existing account relationships, passwords, activation state, matriculation
+numbers, department values, avatars, and authorization data are preserved.
+Migrated legacy profiles can be edited immediately. Administrators can correct
+their category or level using Django admin when needed.
 
-Repository inspection found two existing profiles in mysite/db.sqlite3. Current
-mysite.settings points to db.sqlite3 at the repository root instead. Confirm the
-intended database before applying migrations; do not create an empty database as
-a substitute for the populated one. This change does not move, reset, or migrate
-the existing development database.
+Reversing 0009 to 0008 retains the backfilled values and subsequent edits, because
+they remain compatible with the 0008 schema and cannot safely be distinguished
+from administrator-supplied values. Reapplying the migration preserves them.
+Rolling back further to 0007 fails for staff profiles with NULL matric_no because
+that older schema requires a matriculation number.
+Scripts using the ORM directly should call full_clean(); Django save() does not
+automatically run model validation.
+
+mysite.settings uses mysite/db.sqlite3. Apply migrations with the intended runtime
+settings; accounts.tests.settings uses an in-memory database and must not be used
+to migrate development data. Adding the migration does not apply it automatically.
+The ignored local .env file must define SECRET_KEY; deployed environments should
+provide their own independently generated value through the process environment.
 
 ## Documentation and verification
 
@@ -227,31 +261,30 @@ data.
 | File | Purpose |
 | --- | --- |
 | models.py | Single categorized Profile, common fields, matriculation validator, and complete-state category validation. |
-| serializers.py | Provisioning, activation, partial-update validation, atomic account/profile writes, and response schemas. |
+| serializers.py | Provisioning, activation, JWT refresh revocation, logout, partial-update validation, atomic account/profile writes, and response schemas. |
 | permissions.py | Django model-permission checks for provisioning. |
 | activation.py | Activation credential generation using Django's token utility. |
-| views.py | Provisioning and activation endpoints, ownership restrictions, and consistent avatar/profile validation. |
-| urls.py | New lifecycle routes and secured legacy registration aliases. |
+| views.py | JWT lifecycle, provisioning and activation endpoints, scoped throttles, ownership restrictions, and consistent avatar/profile validation. |
+| urls.py | JWT login, refresh and logout routes, lifecycle routes, and secured legacy registration aliases. |
 | admin.py | Inactive account provisioning with a required profile, activation credential issuance, and profile management. |
 | migrations/0008_profile_categories.py | Additive schema changes that preserve existing profile data. |
+| migrations/0009_backfill_legacy_profiles.py | Default legacy profiles to student and missing levels to 300, then disallow NULL categories. |
 | ../mysite/settings.py | Enable the already installed drf-spectacular package and separate request schemas. |
 | ../mysite/urls.py | Live schema and Swagger documentation routes. |
 | openapi.yaml | Validated, generated accounts API contract. |
 | README.md | Account lifecycle, API examples, migration guidance, and verification instructions. |
-| tests/test_api.py | API validation, ownership, permissions, activation, JWT, and avatar regression tests. |
+| tests/test_api.py | API validation, ownership, permissions, activation, JWT revocation/logout, throttling, and avatar regression tests. |
 | tests/test_admin.py | Admin provisioning, profile category/level edits, and activation issuance permissions. |
 | tests/test_models.py | Model validation, uniqueness, and account/profile relationship tests. |
-| tests/test_migrations.py | Preservation of an existing profile through the new migration. |
+| tests/test_migrations.py | Legacy defaults, account/profile preservation, JWT and profile access, and safe backfill reapplication. |
 | tests/__init__.py, tests/settings.py, tests/urls.py | Test package and isolated database/URL configuration, replacing the former placeholder tests.py. |
 
-## Verification on 2026-10-24
+## Verification on 2026-10-25
 
-- All 78 account tests passed, including API, Django admin, model, and migration tests.
+- All 88 account tests passed, including API, Django admin, model, and migration tests.
+- The isolated Django system check reported no issues.
 - The accounts migration consistency check found no missing migrations.
 - The generated accounts schema validated with no warnings or errors.
-- Django's full project system check and full OpenAPI schema validation passed
-  with a process-local override pointing to the existing Google Drive credential
-  file. Development data and environment files were unchanged.
 - Git diff whitespace validation passed.
 
 Remaining workspace configuration issues require separate follow-up:

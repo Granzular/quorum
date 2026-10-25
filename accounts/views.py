@@ -6,7 +6,10 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from accounts.activation import activation_credentials
 from accounts.models import CustomUser as User, Profile
@@ -15,6 +18,7 @@ from accounts.serializers import (
     ActivateAccountSerializer,
     AvatarResponseSerializer,
     CurrentProfileResponseSerializer,
+    LogoutSerializer,
     ManageProfileReadSerializer,
     ManageProfileSerializer,
     ProfileResponseSerializer,
@@ -22,6 +26,7 @@ from accounts.serializers import (
     ProfileUpdateSerializer,
     ProvisionAccountResponseSerializer,
     ProvisionAccountSerializer,
+    RevokingTokenRefreshSerializer,
     SuccessSerializer,
 )
 
@@ -32,6 +37,37 @@ FIELD_ERRORS = OpenApiResponse(
 )
 UNAUTHENTICATED = OpenApiResponse(description="A valid JWT is required.")
 FORBIDDEN = OpenApiResponse(description="The account lacks the required Django permissions.")
+THROTTLED = OpenApiResponse(description="The authentication rate limit was exceeded.")
+TOKEN_REJECTED = OpenApiResponse(
+    description="The credentials or token were invalid, expired, or revoked."
+)
+
+
+@extend_schema(
+    request=TokenObtainPairSerializer,
+    responses={200: TokenObtainPairSerializer, 401: TOKEN_REJECTED, 429: THROTTLED},
+    tags=["Authentication"],
+)
+class LoginView(TokenObtainPairView):
+    """Issue an access/refresh token pair for an active account."""
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_login"
+
+
+@extend_schema(
+    request=RevokingTokenRefreshSerializer,
+    responses={
+        200: RevokingTokenRefreshSerializer, 401: TOKEN_REJECTED, 429: THROTTLED,
+    },
+    tags=["Authentication"],
+)
+class RefreshAccessTokenView(TokenRefreshView):
+    """Rotate a valid refresh token and issue a new access token."""
+
+    serializer_class = RevokingTokenRefreshSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_refresh"
 
 
 @extend_schema(
@@ -84,7 +120,7 @@ class FreshmanRegisterView(RegisterView):
 
 
 @extend_schema(
-    responses={200: SuccessSerializer, 400: FIELD_ERRORS},
+    responses={200: SuccessSerializer, 400: FIELD_ERRORS, 429: THROTTLED},
     tags=["Accounts"],
 )
 class ActivateAccountView(generics.GenericAPIView):
@@ -99,12 +135,42 @@ class ActivateAccountView(generics.GenericAPIView):
     serializer_class = ActivateAccountSerializer
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_activation"
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response({"status": "success"}, headers={"Cache-Control": "no-store"})
+
+
+@extend_schema(
+    request=LogoutSerializer,
+    responses={
+        204: OpenApiResponse(description="The supplied refresh token was blacklisted."),
+        400: FIELD_ERRORS,
+        401: UNAUTHENTICATED,
+        429: THROTTLED,
+    },
+    tags=["Authentication"],
+)
+class LogoutView(generics.GenericAPIView):
+    """Blacklist the authenticated account's refresh token.
+
+    The access token used for this request remains valid until its normal expiry.
+    """
+
+    serializer_class = LogoutSerializer
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_logout"
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema_view(
@@ -131,8 +197,8 @@ class ManageStudentProfileViewset(mixins.UpdateModelMixin, viewsets.GenericViewS
     update their own account and common/profile fields, except level and category.
     accounts.change_profile permits editing other profiles and changing levels.
     Editing another account's username or names also requires
-    accounts.change_customuser. Category changes and legacy classification use
-    Django admin. Inapplicable fields are rejected even when explicitly empty.
+    accounts.change_customuser. Category changes use Django admin. Inapplicable
+    fields are rejected even when explicitly empty.
     """
 
     queryset = User.objects.select_related("profile").filter(profile__isnull=False)

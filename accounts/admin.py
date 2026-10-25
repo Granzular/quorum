@@ -51,8 +51,7 @@ class CustomUserAdmin(UserAdmin):
         )
 
     def get_inlines(self, request, obj):
-        # Existing accounts manage profiles separately, including legacy rows
-        # that cannot be classified while editing group memberships.
+        # Existing accounts manage profiles separately from account permissions.
         return [ProfileInline] if obj is None else []
 
     def show_activation_credentials(self, request, user):

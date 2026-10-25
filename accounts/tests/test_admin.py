@@ -63,8 +63,8 @@ class ProfileAdminTests(TestCase):
         self.assertIsNone(self.profile.level)
         self.assertEqual(self.profile.matric_no, "CSC/24/1234")
 
-    def test_admin_can_complete_legacy_profile_without_changing_memberships(self):
-        Profile.objects.filter(pk=self.profile.pk).update(profile_type=None, level=None)
+    def test_admin_can_correct_defaulted_level_without_changing_memberships(self):
+        Profile.objects.filter(pk=self.profile.pk).update(level=300)
         group = Group.objects.create(name="Existing members")
         self.member.groups.add(group)
         response = self.client.post(self.url, self.profile_form(level=400))

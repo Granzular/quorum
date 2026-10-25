@@ -6,12 +6,14 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.test import override_settings
 from PIL import Image
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
+from rest_framework.throttling import ScopedRateThrottle
 
 from accounts.activation import activation_credentials
 from accounts.models import CustomUser as User, Profile
@@ -23,6 +25,8 @@ ACTIVATE = "/api/accounts/activate/"
 CURRENT = "/api/accounts/student/manage-profile/"
 AVATAR = CURRENT + "avatar/"
 TOKEN = "/api/accounts/auth/token/"
+REFRESH = "/api/accounts/auth/token/refresh/"
+LOGOUT = "/api/accounts/auth/logout/"
 PASSWORD = "Long-private-phrase-47!"
 
 
@@ -472,15 +476,6 @@ class ProfileUpdateTests(AccountAPITestCase):
         self.assertEqual(self.client.get(AVATAR).status_code, 404)
         self.assertEqual(self.update_profile({}, user=user).status_code, 404)
 
-    def test_legacy_profile_requires_administrator_completion(self):
-        Profile.objects.filter(pk=self.owner_profile.pk).update(profile_type=None, level=None)
-        response = self.update_profile({"bio": "legacy"})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("profile_type", response.data["profile"])
-        response = self.client.get(CURRENT)
-        self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.data["data"]["profile"]["profile_type"])
-
     def test_avatar_upload_retains_path_and_response(self):
         response = self.client.put(AVATAR, {"avatar": image_upload()}, format="multipart")
         self.assertEqual(response.status_code, 200, response.data)
@@ -641,3 +636,126 @@ class ActivationTests(AccountAPITestCase):
         response = self.client.post(ACTIVATE, {}, format="json")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(set(response.data), {"uid", "token", "password"})
+
+
+class JWTSessionTests(AccountAPITestCase):
+    def token_pair(self, user=None, password=PASSWORD):
+        user = user or self.owner
+        response = self.client.post(
+            TOKEN, {"username": user.username, "password": password}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        return response.data
+
+    def test_logout_blacklists_refresh_token(self):
+        tokens = self.token_pair()
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + tokens["access"])
+        response = self.client.post(LOGOUT, {"refresh": tokens["refresh"]}, format="json")
+        self.assertEqual(response.status_code, 204, response.data)
+
+        self.client.credentials()
+        response = self.client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json")
+        self.assertEqual(response.status_code, 401, response.data)
+
+    def test_logout_requires_access_token_and_matching_refresh_owner(self):
+        owner_tokens = self.token_pair()
+        other_tokens = self.token_pair(self.other)
+        self.assertEqual(
+            self.client.post(LOGOUT, {"refresh": owner_tokens["refresh"]}, format="json").status_code,
+            401,
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + owner_tokens["access"])
+        response = self.client.post(LOGOUT, {"refresh": other_tokens["refresh"]}, format="json")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("refresh", response.data)
+
+        self.client.credentials()
+        self.assertEqual(
+            self.client.post(REFRESH, {"refresh": other_tokens["refresh"]}, format="json").status_code,
+            200,
+        )
+
+    def test_logout_rejects_invalid_refresh_token(self):
+        tokens = self.token_pair()
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + tokens["access"])
+        response = self.client.post(LOGOUT, {"refresh": "invalid"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("refresh", response.data)
+
+    def test_password_change_revokes_access_and_refresh_tokens(self):
+        tokens = self.token_pair()
+        self.owner.set_password("Another-private-phrase-67!")
+        self.owner.save(update_fields=["password"])
+
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + tokens["access"])
+        self.assertEqual(self.client.get(CURRENT).status_code, 401)
+        self.client.credentials()
+        self.assertEqual(
+            self.client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json").status_code,
+            401,
+        )
+
+
+class AuthenticationThrottleTests(AccountAPITestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    def throttled_rates(self, scope):
+        return {
+            **settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],
+            scope: "1/minute",
+        }
+
+    def token_pair(self):
+        response = self.client.post(
+            TOKEN, {"username": self.owner.username, "password": PASSWORD}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        return response.data
+
+    def test_login_is_throttled(self):
+        with patch.object(
+            ScopedRateThrottle, "THROTTLE_RATES", self.throttled_rates("auth_login")
+        ):
+            data = {"username": self.owner.username, "password": "incorrect"}
+            self.assertEqual(self.client.post(TOKEN, data, format="json").status_code, 401)
+            self.assertEqual(self.client.post(TOKEN, data, format="json").status_code, 429)
+
+    def test_activation_is_throttled(self):
+        with patch.object(
+            ScopedRateThrottle, "THROTTLE_RATES", self.throttled_rates("auth_activation")
+        ):
+            data = {"uid": "invalid", "token": "invalid", "password": PASSWORD}
+            self.assertEqual(self.client.post(ACTIVATE, data, format="json").status_code, 400)
+            self.assertEqual(self.client.post(ACTIVATE, data, format="json").status_code, 429)
+
+    def test_refresh_is_throttled(self):
+        tokens = self.token_pair()
+        with patch.object(
+            ScopedRateThrottle, "THROTTLE_RATES", self.throttled_rates("auth_refresh")
+        ):
+            data = {"refresh": tokens["refresh"]}
+            self.assertEqual(self.client.post(REFRESH, data, format="json").status_code, 200)
+            self.assertEqual(self.client.post(REFRESH, data, format="json").status_code, 429)
+
+    def test_logout_is_throttled(self):
+        first = self.token_pair()
+        second = self.token_pair()
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + first["access"])
+        with patch.object(
+            ScopedRateThrottle, "THROTTLE_RATES", self.throttled_rates("auth_logout")
+        ):
+            self.assertEqual(
+                self.client.post(LOGOUT, {"refresh": first["refresh"]}, format="json").status_code,
+                204,
+            )
+            self.assertEqual(
+                self.client.post(LOGOUT, {"refresh": second["refresh"]}, format="json").status_code,
+                429,
+            )
