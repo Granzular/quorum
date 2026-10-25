@@ -201,6 +201,16 @@ Configure the required Django settings and Google Drive credentials according to
 
 Keep credentials, secret keys, and other sensitive values outside version control.
 
+### Backend Logging
+
+Backend logs use one JSON object per line on standard output. Application log
+levels default to `DEBUG` in development and `INFO` when `DEBUG=false`; set
+`LOG_LEVEL` in the process environment or ignored `.env` file to override them.
+Each request receives a server-generated ID returned in `X-Request-ID`.
+
+See [the logging guide](docs/logging.md) for the schema, request correlation,
+safe logging conventions, configuration, and focused verification commands.
+
 ### Apply Database Migrations
 
 ```bash

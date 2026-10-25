@@ -24,8 +24,7 @@ def test_drive():
     results = DriveService.files().list(q=query, fields="files(id, name)").execute()
     items = results.get('files', [])
     
-    for item in items:
-        print(f"Found: {item['name']} (ID: {item['id']})")
+    logger.debug('Drive files listed', extra={'resource_count': len(items)})
 
 
 def get_resource_index(folder_id:str,parent_name='Root'):
@@ -71,8 +70,8 @@ def get_resource_index(folder_id:str,parent_name='Root'):
         
         return all_resources
 
-    except Exception as e:
-        logger.error(f"Error crawling folder {folder_id}: {e}")
+    except Exception:
+        logger.exception('Drive folder crawl failed')
         return []
 
 
@@ -121,8 +120,8 @@ def __get_resource_index(folder_id:str,level=None,semester=None,parent_name='ROO
         
         return all_resources
 
-    except Exception as e:
-        logger.error(f"Error crawling folder {folder_id}: {e}")
+    except Exception:
+        logger.exception('Drive folder crawl failed')
         return []
 
 
@@ -186,7 +185,7 @@ def start_resource_indexing():
                 course.resource.add(resource)
 
             except:
-                logger.debug(f"{item['parent_name']} does not match a course code pattern")
+                logger.debug('Drive parent name does not match a course code pattern')
 
         post_indexing()
         logger.debug('Indexing Completed')
@@ -240,7 +239,6 @@ def search_drive_materials(query_text=None, folder_id=None, mime_type=None):
                 
         return results
 
-    except Exception as e:
-        # Log the error in your Django logs
-        print(f"An error occurred during Drive search: {e}")
+    except Exception:
+        logger.exception('Drive search failed')
         return []

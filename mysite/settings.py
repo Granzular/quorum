@@ -28,11 +28,44 @@ BASE_DIR = Path(__file__).resolve().parent
 SECRET_KEY = os.environ['SECRET_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'DEBUG' if DEBUG else 'INFO').strip().upper()
+if LOG_LEVEL not in {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}:
+    raise ValueError('LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {'json': {'()': 'mysite.logging.JSONFormatter'}},
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'stream': 'ext://sys.stdout',
+            'formatter': 'json',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO' if LOG_LEVEL == 'DEBUG' else LOG_LEVEL,
+    },
+    'loggers': {
+        name: {'handlers': [], 'level': LOG_LEVEL, 'propagate': True}
+        for name in ('accounts', 'library', 'community', 'main', 'mysite')
+    } | {
+        'django': {'handlers': [], 'level': 'INFO', 'propagate': True},
+        'django.request': {'handlers': [], 'level': 'WARNING', 'propagate': True},
+        'django.security': {'handlers': [], 'level': 'WARNING', 'propagate': True},
+        'django.server': {'handlers': [], 'level': 'WARNING', 'propagate': True},
+        # SQL and parameters can contain credentials and personal information.
+        'django.db.backends': {'handlers': [], 'level': 'WARNING', 'propagate': True},
+    },
+}
 
 ALLOWED_HOSTS = ['localhost']
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ['X-Request-ID']
 CORS_ALLOWED_ORIGINS = ['http://localhost:5173'] + os.environ.get("CORS_ALLOWED_ORIGINS","").split(',')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
@@ -97,6 +130,7 @@ SIMPLE_JWT = {
 
 
 MIDDLEWARE = [
+    'mysite.middleware.RequestIDMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
