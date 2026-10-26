@@ -153,6 +153,7 @@ This separates file storage from the application's resource discovery and organi
 ### Prerequisites
 
 - Python 3.13
+- [uv](https://docs.astral.sh/uv/)
 - Git
 - Access to the required project configuration and credentials
 
@@ -165,34 +166,36 @@ cd quorum-backend
 
 Replace the repository URL with the actual backend repository address.
 
-### Create a Virtual Environment
+### Install Dependencies
 
 ```bash
-python -m venv .venv
+uv sync --locked
 ```
 
-Activate the environment.
+Runtime dependencies are declared in `[project].dependencies`, while
+development-only tools are declared in `[dependency-groups].dev`. `uv.lock`
+records the resolved dependency graph. By default, `uv sync` installs both the
+runtime dependencies and the development group.
 
-Windows PowerShell:
+For a runtime-only environment without development tools, use:
+
+```bash
+uv sync --locked --no-dev
+```
+
+`uv` creates and synchronizes `.venv`. Run project commands through `uv run`;
+activating the environment is optional.
+
+To activate it in Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
 ```
 
-Linux/macOS:
+On Linux/macOS:
 
 ```bash
 source .venv/bin/activate
-```
-
-### Install Dependencies
-
-Install dependencies using the dependency manifest maintained by the repository.
-
-For a `requirements.txt`-based setup:
-
-```bash
-pip install -r requirements.txt
 ```
 
 ### Configure the Environment
@@ -224,13 +227,19 @@ folders, explicit cleanup behavior, migration state, and verification details.
 ### Apply Database Migrations
 
 ```bash
-python manage.py migrate
+uv run python manage.py migrate
 ```
 
 ### Start the Development Server
 
 ```bash
-python manage.py runserver
+uv run python manage.py runserver
+```
+
+Run the full test suite with:
+
+```bash
+uv run python manage.py test --settings=accounts.tests.settings
 ```
 
 By default, Django's development server is accessible at:

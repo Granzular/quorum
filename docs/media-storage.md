@@ -1,7 +1,7 @@
 # Cloudinary media storage
 
 Quorum uses Django's `STORAGES` registry with `django-cloudinary-storage` 0.4.0.
-The adapter is pinned in `requirements.txt` to the maintained upstream revision
+The adapter is pinned in `pyproject.toml` and `uv.lock` to the maintained upstream revision
 that declares Django 6 compatibility. Static files remain on WhiteNoise and are
 not uploaded to Cloudinary.
 

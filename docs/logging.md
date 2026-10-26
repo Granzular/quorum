@@ -153,8 +153,8 @@ Run only the logging infrastructure tests, using the existing isolated test
 settings to avoid application data and Google Drive startup:
 
 ```text
-python manage.py test mysite --settings=accounts.tests.settings
-python manage.py check
+uv run python manage.py test mysite --settings=accounts.tests.settings
+uv run python manage.py check
 git diff --check
 ```
 

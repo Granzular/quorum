@@ -1,0 +1,61 @@
+[project]
+name = "quorum-backend"
+version = "0.1.0"
+description = "Backend API for the Quorum educational platform"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "cloudinary==1.46.3",
+    "django==6.0.3",
+    "django-cloudinary-storage @ git+https://github.com/klis87/django-cloudinary-storage.git@4d17f7db908c4fe4618ff9595fb1fb1c5c722fbe",
+    "django-cors-headers==4.9.0",
+    "djangorestframework==3.17.1",
+    "djangorestframework-simplejwt==5.5.1",
+    "drf-spectacular==0.29.0",
+    "google-api-python-client==2.194.0",
+    "google-auth==2.49.2",
+    "pillow==12.1.1",
+    "python-dotenv==1.2.4",
+    "uuid6==2025.0.1",
+    "whitenoise==6.12.0",
+]
+
+[tool.uv]
+package = false
+constraint-dependencies = [
+    "asgiref==3.11.1",
+    "attrs==26.1.0",
+    "certifi==2026.2.25",
+    "cffi==2.0.0",
+    "charset-normalizer==3.4.7",
+    "cryptography==46.0.6",
+    "google-api-core==2.30.3",
+    "google-auth-httplib2==0.3.1",
+    "googleapis-common-protos==1.74.0",
+    "httplib2==0.32.0",
+    "idna==3.11",
+    "inflection==0.5.1",
+    "jsonschema==4.26.0",
+    "jsonschema-specifications==2025.9.1",
+    "proto-plus==1.29.0",
+    "protobuf==7.36.2",
+    "pyasn1==0.6.3",
+    "pyasn1-modules==0.4.2",
+    "pycparser==3.0",
+    "pyjwt==2.12.1",
+    "pyparsing==3.3.3",
+    "pyyaml==6.0.3",
+    "referencing==0.37.0",
+    "requests==2.33.1",
+    "rpds-py==0.30.0",
+    "six==1.17.0",
+    "sqlparse==0.5.5",
+    "tzdata==2025.3",
+    "uritemplate==4.2.0",
+    "urllib3==2.6.3",
+]
+
+[dependency-groups]
+dev = [
+    "ipython==9.12.0",
+]

@@ -245,10 +245,10 @@ unrelated Google Drive integration and do not require its credentials.
 Run from the repository root:
 
 ~~~text
-python manage.py test accounts --settings=accounts.tests.settings
-python manage.py check --settings=accounts.tests.settings
-python manage.py makemigrations accounts --check --dry-run --settings=accounts.tests.settings
-python manage.py spectacular --settings=accounts.tests.settings --file accounts/openapi.yaml --validate --fail-on-warn
+uv run python manage.py test accounts --settings=accounts.tests.settings
+uv run python manage.py check --settings=accounts.tests.settings
+uv run python manage.py makemigrations accounts --check --dry-run --settings=accounts.tests.settings
+uv run python manage.py spectacular --settings=accounts.tests.settings --file accounts/openapi.yaml --validate --fail-on-warn
 ~~~
 
 Tests cover API and admin provisioning, activation and JWT login, category

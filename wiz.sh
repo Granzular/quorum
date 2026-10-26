@@ -1,3 +1,3 @@
 #!usr/bin/env  bash
 
-python manage.py runserver
+uv run python manage.py runserver
